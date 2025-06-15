@@ -3,6 +3,13 @@ import streamlit as st
 from PyPDF2 import PdfReader
 import requests
 
+# This MUST be the first Streamlit command
+st.set_page_config(
+    page_title="مولد الأسئلة من PDF",
+    page_icon="📚",
+    layout="wide"
+)
+
 # قراءة رمز API من متغير البيئة
 API_TOKEN = os.getenv("API_TOKEN")
 
@@ -62,12 +69,6 @@ def extract_text_from_pages(pdf_file, start_page, end_page):
         return "", 0, str(e)
 
 # واجهة التطبيق
-st.set_page_config(
-    page_title="مولد الأسئلة من PDF",
-    page_icon="📚",
-    layout="wide"
-)
-
 st.title("📚 مولد الأسئلة من ملفات PDF")
 st.markdown("ارفع ملف PDF واختر نطاق الصفحات التي تريد توليد أسئلة منها")
 
