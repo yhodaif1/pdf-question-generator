@@ -26,27 +26,23 @@ if not API_TOKEN:
         st.info("💡 يمكنك الحصول على Token مجاني من: https://huggingface.co/settings/tokens")
         st.stop()
 
+# النماذج العربية المتاحة
+ARABIC_MODELS = {
+    "aubmindlab/aragpt2-base": "AraGPT2 - نموذج توليد النصوص العربية",
+    "tiiuae/falcon-7b-instruct": "Falcon 7B Instruct - يدعم العربية",
+    "microsoft/DialoGPT-medium": "DialoGPT - محادثة باللغة العربية",
+    "aubmindlab/bert-base-arabertv2": "AraBERT v2 - فهم النصوص العربية"
+}
+
 # دالة لاستدعاء API توليد الأسئلة من Hugging Face
-def generate_questions(text, api_token, question_types):
+def generate_questions(text, api_token, question_types, selected_model):
     headers = {"Authorization": f"Bearer {api_token}"}
     
-    # نموذج لتوليد النصوص العربية
-# في واجهة المستخدم
-model_choice = st.selectbox(
-    "اختر النموذج:",
-    options=[
-        "UBC-NLP/AraT5-base",
-        "aubmindlab/bert-base-arabertv02", 
-        "google/flan-t5-base",
-        "microsoft/DialoGPT-medium"
-    ],
-    index=0
-)
-
-api_url = f"https://api-inference.huggingface.co/models/{model_choice}"    
+    # استخدام النموذج المختار
+    api_url = f"https://api-inference.huggingface.co/models/{selected_model}"
+    
     # تحضير النص للنموذج مع التعليمات المنظمة
-    system_prompt = f"""
-قم بتوليد أسئلة متنوعة من النص التالي باستخدام الصيغة المحددة:
+    system_prompt = f"""قم بتوليد أسئلة متنوعة من النص التالي باستخدام الصيغة المحددة:
 
 الموضوع: [اسم الفصل أو الوحدة]
 الملخص: [ملخص قصير للمحتوى]
@@ -179,7 +175,16 @@ if uploaded_file is not None and API_TOKEN:
         
         st.success(f"✅ تم رفع الملف بنجاح! عدد الصفحات: {total_pages}")
         
-        # خيارات نطاق الصفحات
+        # اختيار النموذج
+        st.subheader("🤖 اختر النموذج:")
+        selected_model = st.selectbox(
+            "النموذج المستخدم:",
+            options=list(ARABIC_MODELS.keys()),
+            format_func=lambda x: ARABIC_MODELS[x],
+            help="اختر النموذج الأنسب لتوليد الأسئلة"
+        )
+        
+        # خيارات نطاق الصفحات مع القيم الافتراضية المحدثة
         st.subheader("🔖 اختر نطاق الصفحات:")
         
         col1, col2, col3 = st.columns([1, 1, 2])
@@ -189,7 +194,7 @@ if uploaded_file is not None and API_TOKEN:
                 "الصفحة الأولى:", 
                 min_value=1, 
                 max_value=total_pages, 
-                value=1,
+                value=1,  # البداية من الصفحة الأولى
                 help=f"اختر من 1 إلى {total_pages}"
             )
         
@@ -198,7 +203,7 @@ if uploaded_file is not None and API_TOKEN:
                 "الصفحة الأخيرة:", 
                 min_value=1, 
                 max_value=total_pages, 
-                value=min(3, total_pages),
+                value=total_pages,  # النهاية في آخر صفحة
                 help=f"اختر من 1 إلى {total_pages}"
             )
         
@@ -268,8 +273,8 @@ if uploaded_file is not None and API_TOKEN:
                         st.error(f"❌ حدث خطأ أثناء استخراج النص: {error}")
                     elif extracted_text:
                         # توليد الأسئلة
-                        with st.spinner("🤖 جاري توليد الأسئلة المنظمة..."):
-                            result = generate_questions(extracted_text, API_TOKEN, question_types)
+                        with st.spinner(f"🤖 جاري توليد الأسئلة المنظمة باستخدام {ARABIC_MODELS[selected_model]}..."):
+                            result = generate_questions(extracted_text, API_TOKEN, question_types, selected_model)
                             
                             if isinstance(result, dict) and "error" in result:
                                 st.error(f"❌ خطأ في API: {result['error']}")
@@ -323,11 +328,16 @@ with st.sidebar:
     st.markdown("""
     1. أدخل Hugging Face API Token
     2. ارفع ملف PDF
-    3. اختر نطاق الصفحات
-    4. اختر أنواع الأسئلة المطلوبة
-    5. اعاين النص (اختياري)
-    6. اضغط على توليد الأسئلة المنظمة
+    3. اختر النموذج المناسب
+    4. اختر نطاق الصفحات (افتراضي: كامل الملف)
+    5. اختر أنواع الأسئلة المطلوبة
+    6. اعاين النص (اختياري)
+    7. اضغط على توليد الأسئلة المنظمة
     """)
+    
+    st.markdown("### 🤖 النماذج المتاحة:")
+    for model_name, description in ARABIC_MODELS.items():
+        st.markdown(f"- **{model_name.split('/')[-1]}**: {description.split(' - ')[1]}")
     
     st.markdown("### 📝 أنواع الأسئلة المتاحة:")
     st.markdown("""
@@ -339,7 +349,8 @@ with st.sidebar:
     
     st.markdown("### 💡 نصائح:")
     st.markdown("""
-    - ابدأ بنطاق صغير (2-3 صفحات)
+    - القيم الافتراضية تشمل كامل الملف
+    - جرب نماذج مختلفة للحصول على أفضل النتائج
     - اختر 2-3 أنواع من الأسئلة للحصول على تنوع
     - تأكد من وضوح النص في PDF
     - يمكن تحميل الأسئلة بصيغة منظمة
