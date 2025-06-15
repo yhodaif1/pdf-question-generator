@@ -10,10 +10,10 @@ st.set_page_config(
     layout="wide"
 )
 
-# قراءة رمز API من متغير البيئة
-API_TOKEN = os.getenv("API_TOKEN")
+# قراءة رمز API من secrets أو متغير البيئة
+API_TOKEN = st.secrets.get("API_TOKEN") or os.getenv("API_TOKEN")
 
-# إذا لم يوجد في متغيرات البيئة، اطلبه من المستخدم
+# إذا لم يوجد، اطلبه من المستخدم
 if not API_TOKEN:
     st.warning("⚠️ لم يتم العثور على API Token في إعدادات التطبيق")
     API_TOKEN = st.text_input(
