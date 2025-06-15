@@ -4,7 +4,7 @@ import pdfplumber
 import requests
 
 # قراءة رمز API من متغير البيئة
-API_TOKEN = os.getenv("API_TOKEN")
+API_TOKEN = os.getenv("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")
 
 if not API_TOKEN:
     st.error("لم يتم العثور على API_TOKEN في متغيرات البيئة. الرجاء إضافته.")
