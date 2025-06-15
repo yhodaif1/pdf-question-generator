@@ -31,8 +31,19 @@ def generate_questions(text, api_token, question_types):
     headers = {"Authorization": f"Bearer {api_token}"}
     
     # نموذج لتوليد النصوص العربية
-    api_url = "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium"
-    
+# في واجهة المستخدم
+model_choice = st.selectbox(
+    "اختر النموذج:",
+    options=[
+        "UBC-NLP/AraT5-base",
+        "aubmindlab/bert-base-arabertv02", 
+        "google/flan-t5-base",
+        "microsoft/DialoGPT-medium"
+    ],
+    index=0
+)
+
+api_url = f"https://api-inference.huggingface.co/models/{model_choice}"    
     # تحضير النص للنموذج مع التعليمات المنظمة
     system_prompt = f"""
 قم بتوليد أسئلة متنوعة من النص التالي باستخدام الصيغة المحددة:
