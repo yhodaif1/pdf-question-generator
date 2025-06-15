@@ -2,6 +2,7 @@ import os
 import streamlit as st
 from PyPDF2 import PdfReader
 import requests
+import datetime
 
 # This MUST be the first Streamlit command
 st.set_page_config(
@@ -164,7 +165,7 @@ def generate_default_questions(text, question_types):
 - عدد الكلمات في النص: {len(text.split())}
 - عدد الأحرف: {len(text)}
 - الكلمات المفتاحية المستخرجة: {', '.join(keywords[:10])}
-- تاريخ الإنشاء: {st.session_state.get('generation_time', 'غير محدد')}
+- تاريخ الإنشاء: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 """
     
     return questions_structure
@@ -332,9 +333,6 @@ if uploaded_file is not None and API_TOKEN:
             
             # توليد الأسئلة
             if generate_btn:
-                import datetime
-                st.session_state.generation_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
                 with st.spinner("🔄 جاري استخراج النص وتوليد الأسئلة المنظمة..."):
                     # استخراج النص
                     extracted_text, _, error = extract_text_from_pages(uploaded_file, start_page, end_page)
@@ -344,6 +342,8 @@ if uploaded_file is not None and API_TOKEN:
                     elif extracted_text:
                         # محاولة توليد الأسئلة باستخدام API
                         api_success = False
+                        questions = ""
+                        
                         if model_available:
                             with st.spinner(f"🤖 جاري توليد الأسئلة باستخدام {ARABIC_MODELS[selected_model]}..."):
                                 result = generate_questions(extracted_text, API_TOKEN, question_types, selected_model)
@@ -354,4 +354,80 @@ if uploaded_file is not None and API_TOKEN:
                                     
                                     # معالجة استجابة API
                                     if isinstance(result, list) and len(result) > 0:
-                                        questions = result[0].get
+                                        questions = result[0].get("generated_text", "")
+                                    else:
+                                        questions = str(result)
+                                    
+                                    # عرض الأسئلة
+                                    st.subheader("🤖 الأسئلة المولدة بواسطة AI:")
+                                    st.code(questions, language="text")
+                                else:
+                                    st.warning(f"⚠️ خطأ في API: {result.get('error', 'خطأ غير معروف')}")
+                        
+                        # إذا فشلت API أو لم تكن متاحة، استخدم الأسئلة الافتراضية
+                        if not api_success:
+                            st.info("💡 سيتم إنشاء أسئلة منظمة افتراضية بناءً على النص:")
+                            default_questions = generate_default_questions(extracted_text, question_types)
+                            
+                            st.subheader("📝 الأسئلة المنظمة المولدة:")
+                            st.markdown("---")
+                            st.text(default_questions)
+                            
+                            questions = default_questions
+                        
+                        # زر التحميل
+                        if questions:
+                            download_data = f"الأسئلة المولدة من الصفحات {start_page}-{end_page}\nالملف: {uploaded_file.name}\n\n{questions}"
+                            st.download_button(
+                                label="📥 تحميل الأسئلة",
+                                data=download_data,
+                                file_name=f"questions_{uploaded_file.name}_{start_page}-{end_page}.txt",
+                                mime="text/plain",
+                                use_container_width=True
+                            )
+                    else:
+                        st.warning("⚠️ لم يتم العثور على نص في النطاق المحدد")
+    
+    except Exception as e:
+        st.error(f"❌ حدث خطأ أثناء قراءة ملف PDF: {e}")
+        st.info("💡 تأكد من أن الملف ليس محمي بكلمة مرور وأنه قابل للقراءة")
+
+# الشريط الجانبي
+with st.sidebar:
+    st.markdown("### ℹ️ كيفية الاستخدام:")
+    st.markdown("""
+    1. أدخل Hugging Face API Token
+    2. ارفع ملف PDF
+    3. اختر النموذج المناسب
+    4. اختر نطاق الصفحات (افتراضي: كامل الملف)
+    5. اختر أنواع الأسئلة المطلوبة
+    6. معاينة النص (اختياري)
+    7. توليد الأسئلة المنظمة
+    """)
+    
+    st.markdown("### 🤖 النماذج المتاحة:")
+    for model_name, description in ARABIC_MODELS.items():
+        st.markdown(f"- **{model_name.split('/')[-1]}**: {description}")
+    
+    st.markdown("### 📝 أنواع الأسئلة:")
+    st.markdown("""
+    - **اختيار من متعدد**: أسئلة بخيارات متعددة
+    - **صح أو خطأ**: أسئلة صحيح/خطأ مع التبرير
+    - **مطابقة**: ربط المصطلحات بتعريفاتها
+    - **كلمات متقاطعة**: شبكة كلمات مع تعريفات
+    """)
+    
+    st.markdown("### 💡 نصائح:")
+    st.markdown("""
+    - النظام يعمل حتى لو لم تكن النماذج متاحة
+    - يتم إنشاء أسئلة ذكية من النص تلقائياً
+    - الأسئلة الافتراضية تحتوي على كلمات مفتاحية
+    - يمكن تحميل النتائج بصيغة نصية
+    """)
+    
+    st.markdown("### 🔗 روابط مفيدة:")
+    st.markdown("""
+    - [API Token](https://huggingface.co/settings/tokens)
+    - [Hugging Face Models](https://huggingface.co/models)
+    - [دليل استخدام API](https://huggingface.co/docs/api-inference)
+    """)
