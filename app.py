@@ -26,12 +26,12 @@ if not API_TOKEN:
         st.info("💡 يمكنك الحصول على Token مجاني من: https://huggingface.co/settings/tokens")
         st.stop()
 
-# النماذج العربية المتاحة
+# النماذج العربية المتاحة في Inference API
 ARABIC_MODELS = {
-    "aubmindlab/aragpt2-base": "AraGPT2 - نموذج توليد النصوص العربية",
-    "tiiuae/falcon-7b-instruct": "Falcon 7B Instruct - يدعم العربية",
-    "microsoft/DialoGPT-medium": "DialoGPT - محادثة باللغة العربية",
-    "aubmindlab/bert-base-arabertv2": "AraBERT v2 - فهم النصوص العربية"
+    "microsoft/DialoGPT-medium": "DialoGPT Medium - نموذج المحادثة",
+    "gpt2": "GPT-2 - نموذج توليد النصوص (يدعم العربية)",
+    "facebook/blenderbot-400M-distill": "BlenderBot - نموذج محادثة ذكي",
+    "microsoft/DialoGPT-small": "DialoGPT Small - نموذج محادثة مبسط"
 }
 
 # دالة لاستدعاء API توليد الأسئلة من Hugging Face
@@ -41,37 +41,21 @@ def generate_questions(text, api_token, question_types, selected_model):
     # استخدام النموذج المختار
     api_url = f"https://api-inference.huggingface.co/models/{selected_model}"
     
-    # تحضير النص للنموذج مع التعليمات المنظمة
-    system_prompt = f"""قم بتوليد أسئلة متنوعة من النص التالي باستخدام الصيغة المحددة:
-
-الموضوع: [اسم الفصل أو الوحدة]
-الملخص: [ملخص قصير للمحتوى]
-الأسئلة:
-  - النوع: اختيار من متعدد
-    السؤال: ...
-    الخيارات: [أ، ب، ج، د]
-    الإجابة: ب
-  - النوع: كلمات متقاطعة
-    الشبكة: [نص أو مصفوفة للشبكة]
-    التعريفات: {{أفقيًا: [...], عموديًا: [...]}}
-  - النوع: صح أو خطأ
-    السؤال: ...
-    الإجابة: صحيح
-  - النوع: مطابقة
-    الأزواج: [{{مصطلح: ..., مطابق له: ...}}]
-
-أنواع الأسئلة المطلوبة: {', '.join(question_types)}
-
-النص المرجعي:
-{text[:2000]}...
-
-يرجى إنشاء أسئلة متنوعة وشاملة بناءً على هذا النص:
-"""
+    # تحضير النص للنموذج (تبسيط الـ prompt)
+    prompt = f"أنشئ أسئلة من النص التالي:\n\n{text[:1000]}\n\nالأسئلة:"
     
-    payload = {"inputs": system_prompt}
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": 500,
+            "temperature": 0.7,
+            "do_sample": True,
+            "return_full_text": False
+        }
+    }
     
     try:
-        response = requests.post(api_url, headers=headers, json=payload, timeout=30)
+        response = requests.post(api_url, headers=headers, json=payload, timeout=60)
         if response.status_code == 200:
             return response.json()
         else:
@@ -79,55 +63,111 @@ def generate_questions(text, api_token, question_types, selected_model):
     except requests.exceptions.RequestException as e:
         return {"error": f"Request failed: {str(e)}"}
 
-# دالة لتوليد أسئلة افتراضية منظمة
+# دالة لتوليد أسئلة افتراضية محسنة
 def generate_default_questions(text, question_types):
     # استخراج العنوان المحتمل من النص
     lines = text.split('\n')
     topic = "المحتوى المستخرج"
-    for line in lines[:5]:
-        if line.strip() and len(line.strip()) > 10:
-            topic = line.strip()[:50] + "..."
-            break
+    
+    # البحث عن عنوان مناسب
+    for line in lines[:10]:
+        if line.strip() and len(line.strip()) > 5 and len(line.strip()) < 100:
+            # تجنب الأرقام والرموز
+            if not line.strip().isdigit() and not line.strip().startswith('---'):
+                topic = line.strip()[:60]
+                break
+    
+    # استخراج الكلمات المفتاحية
+    words = text.replace('\n', ' ').split()
+    keywords = []
+    for word in words[:50]:  # أول 50 كلمة
+        if len(word) > 3 and word.isalpha():
+            keywords.append(word)
     
     # ملخص قصير
-    summary = text[:200].replace('\n', ' ').strip() + "..."
+    sentences = text.split('.')
+    summary = ""
+    for sentence in sentences[:3]:
+        if len(sentence.strip()) > 10:
+            summary += sentence.strip() + ". "
     
-    default_structure = f"""
+    if not summary:
+        summary = text[:150].replace('\n', ' ').strip() + "..."
+    
+    # بناء الأسئلة المنظمة
+    questions_structure = f"""
 الموضوع: {topic}
 الملخص: {summary}
-الأسئلة:
+
+الأسئلة المولدة:
+========================
 """
+    
+    question_count = 1
     
     # إضافة أسئلة حسب النوع المختار
     if "اختيار من متعدد" in question_types:
-        default_structure += """
-  - النوع: اختيار من متعدد
-    السؤال: ما هي الفكرة الرئيسية للنص؟
-    الخيارات: [أ. المفهوم الأول، ب. المفهوم الثاني، ج. المفهوم الثالث، د. جميع ما سبق]
-    الإجابة: د
+        questions_structure += f"""
+{question_count}. النوع: اختيار من متعدد
+   السؤال: ما هو الموضوع الرئيسي المتناول في النص؟
+   الخيارات:
+   أ) {keywords[0] if len(keywords) > 0 else 'الخيار الأول'}
+   ب) {keywords[1] if len(keywords) > 1 else 'الخيار الثاني'}
+   ج) {keywords[2] if len(keywords) > 2 else 'الخيار الثالث'}
+   د) جميع ما سبق
+   الإجابة الصحيحة: د
+
 """
+        question_count += 1
     
     if "صح أو خطأ" in question_types:
-        default_structure += """
-  - النوع: صح أو خطأ
-    السؤال: النص يحتوي على معلومات مفيدة ومفصلة
-    الإجابة: صحيح
+        questions_structure += f"""
+{question_count}. النوع: صح أو خطأ
+   السؤال: النص يحتوي على معلومات تفصيلية ومفيدة حول الموضوع
+   الإجابة: صحيح
+   التبرير: النص يقدم معلومات شاملة ومفصلة
+
 """
+        question_count += 1
     
     if "مطابقة" in question_types:
-        default_structure += """
-  - النوع: مطابقة
-    الأزواج: [{مصطلح: "المفهوم الأول", مطابق له: "التعريف الأول"}, {مصطلح: "المفهوم الثاني", مطابق له: "التعريف الثاني"}]
+        questions_structure += f"""
+{question_count}. النوع: مطابقة
+   اربط بين المصطلحات والتعريفات:
+   المصطلحات: {', '.join(keywords[:3]) if len(keywords) >= 3 else 'المصطلح الأول، المصطلح الثاني، المصطلح الثالث'}
+   التعريفات: [تعريف مفصل لكل مصطلح بناءً على السياق]
+
 """
+        question_count += 1
     
     if "كلمات متقاطعة" in question_types:
-        default_structure += """
-  - النوع: كلمات متقاطعة
-    الشبكة: [شبكة 5x5 مع الكلمات المتقاطعة]
-    التعريفات: {أفقيًا: ["1. مصطلح من النص", "3. مفهوم مهم"], عموديًا: ["2. كلمة رئيسية", "4. موضوع فرعي"]}
+        questions_structure += f"""
+{question_count}. النوع: كلمات متقاطعة
+   شبكة الكلمات المتقاطعة: [شبكة 7×7]
+   الكلمات المستخدمة: {', '.join(keywords[:5]) if len(keywords) >= 5 else 'كلمات مفتاحية من النص'}
+   
+   التعريفات:
+   أفقياً:
+   - 1. {keywords[0] if len(keywords) > 0 else 'مصطلح من النص'} (4 أحرف)
+   - 3. {keywords[1] if len(keywords) > 1 else 'مفهوم مهم'} (6 أحرف)
+   
+   عمودياً:
+   - 2. {keywords[2] if len(keywords) > 2 else 'كلمة رئيسية'} (5 أحرف)
+   - 4. {keywords[3] if len(keywords) > 3 else 'موضوع فرعي'} (7 أحرف)
+
 """
     
-    return default_structure
+    # إضافة معلومات إضافية
+    questions_structure += f"""
+========================
+معلومات إضافية:
+- عدد الكلمات في النص: {len(text.split())}
+- عدد الأحرف: {len(text)}
+- الكلمات المفتاحية المستخرجة: {', '.join(keywords[:10])}
+- تاريخ الإنشاء: {st.session_state.get('generation_time', 'غير محدد')}
+"""
+    
+    return questions_structure
 
 # دالة لاستخراج النص من نطاق صفحات محدد
 def extract_text_from_pages(pdf_file, start_page, end_page):
@@ -150,6 +190,17 @@ def extract_text_from_pages(pdf_file, start_page, end_page):
         return full_text, total_pages, None
     except Exception as e:
         return "", 0, str(e)
+
+# دالة للتحقق من حالة النموذج
+def check_model_status(model_name, api_token):
+    headers = {"Authorization": f"Bearer {api_token}"}
+    api_url = f"https://api-inference.huggingface.co/models/{model_name}"
+    
+    try:
+        response = requests.get(api_url, headers=headers, timeout=10)
+        return response.status_code == 200
+    except:
+        return False
 
 # واجهة التطبيق
 st.title("📚 مولد الأسئلة المتنوعة من ملفات PDF")
@@ -175,7 +226,7 @@ if uploaded_file is not None and API_TOKEN:
         
         st.success(f"✅ تم رفع الملف بنجاح! عدد الصفحات: {total_pages}")
         
-        # اختيار النموذج
+        # اختيار النموذج مع التحقق من الحالة
         st.subheader("🤖 اختر النموذج:")
         selected_model = st.selectbox(
             "النموذج المستخدم:",
@@ -183,6 +234,15 @@ if uploaded_file is not None and API_TOKEN:
             format_func=lambda x: ARABIC_MODELS[x],
             help="اختر النموذج الأنسب لتوليد الأسئلة"
         )
+        
+        # التحقق من حالة النموذج
+        with st.spinner("🔍 جاري التحقق من حالة النموذج..."):
+            model_available = check_model_status(selected_model, API_TOKEN)
+            
+        if model_available:
+            st.success(f"✅ النموذج {ARABIC_MODELS[selected_model]} متاح ويعمل")
+        else:
+            st.warning(f"⚠️ النموذج قد يكون غير متاح حالياً، سيتم استخدام الأسئلة الافتراضية")
         
         # خيارات نطاق الصفحات مع القيم الافتراضية المحدثة
         st.subheader("🔖 اختر نطاق الصفحات:")
@@ -194,7 +254,7 @@ if uploaded_file is not None and API_TOKEN:
                 "الصفحة الأولى:", 
                 min_value=1, 
                 max_value=total_pages, 
-                value=1,  # البداية من الصفحة الأولى
+                value=1,
                 help=f"اختر من 1 إلى {total_pages}"
             )
         
@@ -203,7 +263,7 @@ if uploaded_file is not None and API_TOKEN:
                 "الصفحة الأخيرة:", 
                 min_value=1, 
                 max_value=total_pages, 
-                value=total_pages,  # النهاية في آخر صفحة
+                value=total_pages,
                 help=f"اختر من 1 إلى {total_pages}"
             )
         
@@ -259,12 +319,22 @@ if uploaded_file is not None and API_TOKEN:
                         # إحصائيات النص
                         word_count = len(extracted_text.split())
                         char_count = len(extracted_text)
-                        st.metric("📊 إحصائيات النص", f"{word_count} كلمة، {char_count} حرف")
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("📊 عدد الكلمات", word_count)
+                        with col2:
+                            st.metric("📝 عدد الأحرف", char_count)
+                        with col3:
+                            st.metric("📄 عدد الصفحات", pages_count)
                     else:
                         st.warning("⚠️ لم يتم العثور على نص في الصفحات المحددة")
             
             # توليد الأسئلة
             if generate_btn:
+                import datetime
+                st.session_state.generation_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
                 with st.spinner("🔄 جاري استخراج النص وتوليد الأسئلة المنظمة..."):
                     # استخراج النص
                     extracted_text, _, error = extract_text_from_pages(uploaded_file, start_page, end_page)
@@ -272,92 +342,16 @@ if uploaded_file is not None and API_TOKEN:
                     if error:
                         st.error(f"❌ حدث خطأ أثناء استخراج النص: {error}")
                     elif extracted_text:
-                        # توليد الأسئلة
-                        with st.spinner(f"🤖 جاري توليد الأسئلة المنظمة باستخدام {ARABIC_MODELS[selected_model]}..."):
-                            result = generate_questions(extracted_text, API_TOKEN, question_types, selected_model)
-                            
-                            if isinstance(result, dict) and "error" in result:
-                                st.error(f"❌ خطأ في API: {result['error']}")
+                        # محاولة توليد الأسئلة باستخدام API
+                        api_success = False
+                        if model_available:
+                            with st.spinner(f"🤖 جاري توليد الأسئلة باستخدام {ARABIC_MODELS[selected_model]}..."):
+                                result = generate_questions(extracted_text, API_TOKEN, question_types, selected_model)
                                 
-                                # أسئلة افتراضية منظمة في حالة فشل API
-                                st.warning("💡 سيتم عرض أسئلة منظمة افتراضية:")
-                                default_questions = generate_default_questions(extracted_text, question_types)
-                                st.code(default_questions, language="yaml")
-                                
-                                # زر التحميل للأسئلة الافتراضية
-                                st.download_button(
-                                    label="📥 تحميل الأسئلة المنظمة",
-                                    data=default_questions,
-                                    file_name=f"structured_questions_pages_{start_page}-{end_page}.txt",
-                                    mime="text/plain",
-                                    use_container_width=True
-                                )
-                            else:
-                                st.success("✅ تم توليد الأسئلة المنظمة بنجاح!")
-                                
-                                # معالجة استجابة API
-                                if isinstance(result, list) and len(result) > 0:
-                                    questions = result[0].get("generated_text", "لم يتم توليد أسئلة")
-                                else:
-                                    questions = str(result)
-                                
-                                # عرض الأسئلة
-                                st.subheader("📝 الأسئلة المنظمة المولدة:")
-                                st.markdown("---")
-                                st.code(questions, language="yaml")
-                                
-                                # زر التحميل
-                                download_data = f"الأسئلة المنظمة المولدة من الصفحات {start_page}-{end_page}:\n\n{questions}"
-                                st.download_button(
-                                    label="📥 تحميل الأسئلة المنظمة",
-                                    data=download_data,
-                                    file_name=f"structured_questions_pages_{start_page}-{end_page}.txt",
-                                    mime="text/plain",
-                                    use_container_width=True
-                                )
-                    else:
-                        st.warning("⚠️ لم يتم العثور على نص في النطاق المحدد")
-    
-    except Exception as e:
-        st.error(f"❌ حدث خطأ أثناء قراءة ملف PDF: {e}")
-        st.info("💡 تأكد من أن الملف ليس محمي بكلمة مرور وأنه قابل للقراءة")
-
-# الشريط الجانبي
-with st.sidebar:
-    st.markdown("### ℹ️ كيفية الاستخدام:")
-    st.markdown("""
-    1. أدخل Hugging Face API Token
-    2. ارفع ملف PDF
-    3. اختر النموذج المناسب
-    4. اختر نطاق الصفحات (افتراضي: كامل الملف)
-    5. اختر أنواع الأسئلة المطلوبة
-    6. اعاين النص (اختياري)
-    7. اضغط على توليد الأسئلة المنظمة
-    """)
-    
-    st.markdown("### 🤖 النماذج المتاحة:")
-    for model_name, description in ARABIC_MODELS.items():
-        st.markdown(f"- **{model_name.split('/')[-1]}**: {description.split(' - ')[1]}")
-    
-    st.markdown("### 📝 أنواع الأسئلة المتاحة:")
-    st.markdown("""
-    - **اختيار من متعدد**: أسئلة بخيارات متعددة
-    - **صح أو خطأ**: أسئلة بإجابة صحيح/خطأ
-    - **مطابقة**: ربط المصطلحات بتعريفاتها
-    - **كلمات متقاطعة**: شبكة كلمات متقاطعة
-    """)
-    
-    st.markdown("### 💡 نصائح:")
-    st.markdown("""
-    - القيم الافتراضية تشمل كامل الملف
-    - جرب نماذج مختلفة للحصول على أفضل النتائج
-    - اختر 2-3 أنواع من الأسئلة للحصول على تنوع
-    - تأكد من وضوح النص في PDF
-    - يمكن تحميل الأسئلة بصيغة منظمة
-    """)
-    
-    st.markdown("### 🔗 روابط مفيدة:")
-    st.markdown("""
-    - [الحصول على API Token](https://huggingface.co/settings/tokens)
-    - [نماذج Hugging Face](https://huggingface.co/models)
-    """)
+                                if isinstance(result, dict) and "error" not in result:
+                                    api_success = True
+                                    st.success("✅ تم توليد الأسئلة بواسطة AI بنجاح!")
+                                    
+                                    # معالجة استجابة API
+                                    if isinstance(result, list) and len(result) > 0:
+                                        questions = result[0].get
